@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Loading 生成器 (最终修复版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.min.js"></script>
+
+    <style>
+        :root { --primary: #FF8843; --bg: #f8fafc; --card: #ffffff; --text: #334155; --border: #cbd5e1; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 40px 20px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; }
+        
+        h1 { margin: 0 0 30px 0; font-size: 26px; color: #000000; letter-spacing: -0.5px; }
+        
+        .container { display: grid; grid-template-columns: 340px 1fr; gap: 25px; width: 100%; max-width: 960px; align-items: stretch; }
+        .card { background: var(--card); padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
+
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #475569; }
+        
+        /* 布局修复关键点：强制两列等宽，防止挤压 */
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; min-width: 0; /* 关键：防止 flex 子项内容溢出或无法收缩 */ }
+
+        /* 统一所有输入框的高度和边框 */
+        input[type="number"], select { 
+            width: 100%; 
+            height: 42px; 
+            padding: 0 12px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            font-size: 14px; 
+            background: #fff; 
+            box-sizing: border-box; /* 关键 */
+            outline: none; 
+            transition: 0.2s; 
+        }
+        input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgb(201, 201, 206); }
+        input[type="range"] { width: 100%; margin: 8px 0; cursor: pointer; accent-color:  var(--primary); }
+        
+        /* --- 颜色选择器组合样式 --- */
+        .color-wrapper {
+            display: flex;
+            align-items: center;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer; 
+            accent-color:#F4F5F7; /* <--- 这里控制颜色 */
+            overflow: hidden;
+            height: 42px; /* 与左侧尺寸框高度一致 */
+            width: 100%;  /* 关键：填满父容器 */
+            background: #fff;
+            box-sizing: border-box; /* 关键 */
+            transition: 0.2s;
+        }
+        .color-wrapper:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(240, 246, 255, 0.15); }
+        
+        /* 左侧色块 */
+        input[type="color"] {
+            -webkit-appearance: none; border: none; width: 44px; height: 100%; padding: 0; margin: 0; cursor: pointer; background: none; flex-shrink: 0; /* 防止色块被挤压 */
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-right: 1px solid #e2e8f0; }
+        
+        /* 右侧文本输入 */
+        input.color-hex-input {
+            border: none; flex: 1; width: 100%; min-width: 0; /* 防止文本框撑开容器 */
+            padding: 0 10px; font-family: monospace; font-size: 14px; text-transform: uppercase; color: #475569; height: 100%; outline: none; background: transparent;
+        }
+
+        .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: auto; }
+        .btn:hover { background: #ff6207; }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+        .preview-area { justify-content: center; align-items: center; background-color: #f8fafc; background-image: linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px; position: relative; min-height: 400px; }
+        .preview-content { text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+        .preview-content img { max-width: 90%; max-height: 300px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); border-radius: 4px; }
+        .stats { font-size: 13px; color: #64748b; background: white; padding: 8px 16px; border-radius: 20px; border: 1px solid #e2e8f0; display: inline-block; }
+        
+        @media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+<h1>LOADING 动画生成器</h1>
+
+<div class="container">
+    <div class="card">
+        <div class="form-group">
+            <label>动画模版</label>
+            <select id="styleType">
+                <option value="ios">iOS 菊花 (Classic Spinner)</option>
+                <option value="spinner">平滑圆环 (Smooth Ring)</option>
+                <option value="chase">追逐圆点 (Chasing Dots)</option>
+                <option value="bars">音律跳动 (Equalizer)</option>
+                <option value="pulse">脉冲扩散 (Pulse)</option>
+                <option value="fading-circle">淡入圆圈 (Fading Circle)</option>
+                <option value="dots">三点跳动 (Bouncing Dots)</option>
+            </select>
+        </div>
+
+        <div class="row">
+            <div class="col form-group">
+                <label>尺寸 (px)</label>
+                <input type="number" id="size" value="64" min="16" max="512">
+            </div>
+            <!-- 颜色选择器组合 -->
+            <div class="col form-group">
+                <label>颜色 (Hex)</label>
+                <div class="color-wrapper">
+                    <!-- 真实的颜色选择器 (隐藏式交互) -->
+                    <input type="color" id="colorPicker" value="#FF8843">
+                    <!-- 文本输入框 -->
+                    <input type="text" id="colorText" class="color-hex-input" value="#FF8843" placeholder="#FF8843">
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col form-group">
+                <label>背景</label>
+                <select id="bgOption">
+                    <option value="transparent">透明</option>
+                    <option value="white">白色</option>
+                    <option value="black">黑色</option>
+                </select>
+            </div>
+            <div class="col form-group">
+                <label>输出格式</label>
+                <select id="format">
+                    <option value="apng">APNG (推荐)</option>
+                    <option value="gif">GIF</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>帧率 (FPS) <span id="fpsVal">24</span></label>
+            <input type="range" id="fps" min="10" max="60" value="24" step="1">
+        </div>
+
+        <div class="form-group">
+            <label>压缩等级 / 画质 <span id="qualityVal">80%</span></label>
+            <input type="range" id="quality" min="10" max="100" value="80" step="10">
+        </div>
+
+        <button class="btn" id="generateBtn">生成动画</button>
+    </div>
+
+    <div class="card preview-area">
+        <div class="preview-content" id="previewContent">
+            <div style="color:#94a3b8; display:flex; flex-direction:column; align-items:center;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                <span style="margin-top:10px">点击左侧生成预览</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const previewContent = document.getElementById('previewContent');
+    
+    // --- 颜色选择同步逻辑 ---
+    const colorPicker = document.getElementById('colorPicker');
+    const colorText = document.getElementById('colorText');
+
+    // 1. 色块变动 -> 更新文本
+    colorPicker.addEventListener('input', (e) => {
+        colorText.value = e.target.value.toUpperCase();
+    });
+
+    // 2. 文本变动 -> 更新色块 (带模糊处理)
+    colorText.addEventListener('input', (e) => {
+        let val = e.target.value.trim();
+        // 自动补充 # 号
+        if (!val.startsWith('#') && /^[0-9A-Fa-f]{3,6}$/.test(val)) {
+            val = '#' + val;
+        }
+        
+        // 验证 hex 格式 (支持 #abc 和 #aabbcc)
+        const isValidHex = /^#([0-9A-F]{3}){1,2}$/i.test(val);
+        
+        if (isValidHex) {
+            // 如果是3位简写，浏览器会自动处理
+            if (val.length === 4) { 
+                val = '#' + val[1] + val[1] + val[2] + val[2] + val[3] + val[3];
+            }
+            colorPicker.value = val;
+        }
+    });
+
+    // 失去焦点时，如果格式错误，回滚到当前色块的值
+    colorText.addEventListener('blur', () => {
+        colorText.value = colorPicker.value.toUpperCase();
+    });
+
+    // --- 其他 UI 联动 ---
+    document.getElementById('fps').oninput = function() { document.getElementById('fpsVal').innerText = this.value; }
+    document.getElementById('quality').oninput = function() { document.getElementById('qualityVal').innerText = this.value + '%'; }
+
+    // --- 绘图逻辑 (Drawers) ---
+    const drawers = {
+        ios: (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2, lines = 12;
+            ctx.translate(cx, cy);
+            for(let i=0; i<lines; i++) {
+                ctx.rotate(Math.PI * 2 / lines);
+                ctx.beginPath(); ctx.moveTo(0, s*0.25); ctx.lineTo(0, s*0.45);
+                ctx.lineWidth = s * 0.08; ctx.lineCap = 'round';
+                let opacity = (1 - ((i/lines - p + 1) % 1));
+                ctx.strokeStyle = adjustOpacity(c, Math.max(0.1, opacity));
+                ctx.stroke();
+            }
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
+        spinner: (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2, r = s*0.4, lw = s*0.1;
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.strokeStyle = adjustOpacity(c, 0.15); ctx.lineWidth = lw; ctx.stroke();
+            ctx.beginPath();
+            const start = -Math.PI/2 + p * Math.PI*2;
+            ctx.arc(cx, cy, r, start, start + Math.PI*1.5);
+            ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.stroke();
+        },
+        chase: (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2; ctx.translate(cx, cy);
+            const dotR = s * 0.06;
+            ctx.rotate(p * Math.PI * 2); ctx.beginPath(); ctx.arc(0, -s*0.35, dotR * 1.5, 0, Math.PI*2); ctx.fillStyle = c; ctx.fill();
+            ctx.rotate(-p * Math.PI * 0.2 + 1); ctx.beginPath(); ctx.arc(0, -s*0.35, dotR, 0, Math.PI*2); ctx.fillStyle = adjustOpacity(c, 0.6); ctx.fill();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
+        bars: (ctx, s, p, c) => {
+            const barCount = 4, barW = s * 0.15, gap = s * 0.05, startX = (s - (4 * barW + 3*gap)) / 2;
+            for(let i=0; i<4; i++) {
+                let h = s * 0.3 + Math.sin((p + i*0.2) * Math.PI * 2) * (s*0.2);
+                ctx.fillStyle = c; ctx.fillRect(startX + i * (barW + gap), (s - h) / 2, barW, h);
+            }
+        },
+        pulse: (ctx, s, p, c) => {
+            [0, 0.6].forEach(offset => {
+                let localP = (p + offset) % 1;
+                ctx.beginPath(); ctx.arc(s/2, s/2, localP * (s/2), 0, Math.PI*2);
+                ctx.fillStyle = adjustOpacity(c, 1 - localP); ctx.fill();
+            });
+        },
+        "fading-circle": (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2, count = 12, dotR = s * 0.07, radius = s * 0.4;
+            ctx.translate(cx, cy);
+            for (let i = 0; i < count; i++) {
+                ctx.save(); ctx.rotate((i / count) * Math.PI * 2); ctx.translate(radius, 0);
+                let idx = (Math.floor(p * count) + i) % count;
+                ctx.beginPath(); ctx.arc(0, 0, dotR, 0, Math.PI*2);
+                ctx.fillStyle = adjustOpacity(c, (idx + 1) / count); ctx.fill();
+                ctx.restore();
+            }
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
+        dots: (ctx, s, p, c) => {
+            const r = s * 0.12, gap = r * 0.8, startX = (s - (3*r*2 + 2*gap))/2 + r;
+            for(let i=0; i<3; i++) {
+                let localP = (p * 2 - i * 0.3);
+                let dy = (localP > 0 && localP < 1) ? -Math.sin(localP * Math.PI) * (s*0.25) : 0;
+                ctx.beginPath(); ctx.arc(startX + i*(r*2+gap), s/2 + dy, r, 0, Math.PI*2); ctx.fillStyle = c; ctx.fill();
+            }
+        }
+    };
+
+    function adjustOpacity(hex, alpha) {
+        let c = hex.substring(1).split('');
+        if(c.length===3) c = [c[0],c[0],c[1],c[1],c[2],c[2]];
+        c = '0x'+c.join('');
+        return `rgba(${(c>>16)&255}, ${(c>>8)&255}, ${c&255}, ${alpha})`;
+    }
+
+    // --- 生成逻辑 ---
+    document.getElementById('generateBtn').addEventListener('click', async function() {
+        const btn = this; btn.disabled = true; btn.innerText = "生成中...";
+        previewContent.innerHTML = '<div style="color:#64748b">渲染中...</div>';
+
+        const style = document.getElementById('styleType').value;
+        const size = parseInt(document.getElementById('size').value);
+        const color = document.getElementById('colorPicker').value;
+        const bg = document.getElementById('bgOption').value;
+        const format = document.getElementById('format').value;
+        const fps = parseInt(document.getElementById('fps').value);
+        const quality = parseInt(document.getElementById('quality').value);
+
+        canvas.width = size; canvas.height = size;
+        const duration = 1000;
+        const totalFrames = Math.floor((duration / 1000) * fps);
+
+        try {
+            let blob;
+            if (format === 'gif') {
+                const workerBlob = new Blob([`importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');`], {type:'text/javascript'});
+                const workerUrl = URL.createObjectURL(workerBlob);
+                let gifQ = Math.max(1, Math.floor(30 - (quality / 100 * 29)));
+                const gif = new GIF({
+                    workers: 2, quality: gifQ, width: size, height: size, workerScript: workerUrl,
+                    transparent: bg === 'transparent' ? 0x00000000 : null,
+                    background: bg !== 'transparent' ? (bg === 'white' ? '#fff' : '#000') : null
+                });
+                for (let i = 0; i < totalFrames; i++) {
+                    ctx.clearRect(0, 0, size, size);
+                    if(bg === 'white') { ctx.fillStyle='#fff'; ctx.fillRect(0,0,size,size); }
+                    if(bg === 'black') { ctx.fillStyle='#000'; ctx.fillRect(0,0,size,size); }
+                    drawers[style](ctx, size, i / totalFrames, color);
+                    gif.addFrame(ctx, {copy: true, delay: duration / totalFrames});
+                }
+                blob = await new Promise(resolve => { gif.on('finished', b => { URL.revokeObjectURL(workerUrl); resolve(b); }); gif.render(); });
+            } else {
+                const frames = [], delays = [];
+                let cnum = (quality < 100) ? Math.floor(16 + (quality/100 * 240)) : 0;
+                for (let i = 0; i < totalFrames; i++) {
+                    ctx.clearRect(0, 0, size, size);
+                    if(bg === 'white') { ctx.fillStyle='#fff'; ctx.fillRect(0,0,size,size); }
+                    if(bg === 'black') { ctx.fillStyle='#000'; ctx.fillRect(0,0,size,size); }
+                    drawers[style](ctx, size, i / totalFrames, color);
+                    frames.push(ctx.getImageData(0, 0, size, size).data.buffer);
+                    delays.push(duration / totalFrames);
+                }
+                const buf = UPNG.encode(frames, size, size, cnum, delays);
+                blob = new Blob([buf], {type: 'image/png'});
+            }
+
+            const url = URL.createObjectURL(blob);
+            const sizeKB = (blob.size / 1024).toFixed(1);
+            const ext = format === 'apng' ? 'png' : 'gif';
+            previewContent.innerHTML = `
+                <img src="${url}" style="border: 2px solid #fff;">
+                <div class="stats">${format.toUpperCase()} | ${size}px | ${sizeKB} KB</div>
+                <a href="${url}" download="loading_${style}.${ext}" class="btn" style="width:auto; padding:10px 40px; margin-top:10px; background:#10b981;">下载文件</a>
+            `;
+        } catch (e) {
+            console.error(e);
+            previewContent.innerHTML = `<div style="color:red">生成失败</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "生成动画";
+        }
+    });
+</script>
+</body>
+</html>

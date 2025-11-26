@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Loading 生成器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.min.js"></script>
+
+    <style>
+        :root { --primary: #3b82f6; --bg: #f8fafc; --card: #ffffff; --text: #334155; --border: #cbd5e1; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 40px 20px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; }
+        
+        h1 { margin: 0 0 30px 0; font-size: 26px; color: #0f172a; letter-spacing: -0.5px; }
+        
+        .container { display: grid; grid-template-columns: 350px 1fr; gap: 25px; width: 100%; max-width: 1000px; align-items: stretch; }
+        .card { background: var(--card); padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
+
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #475569; }
+        .form-group label span { color: var(--primary); font-weight: bold; }
+
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; min-width: 0; }
+
+        input[type="number"], select, input[type="text"] { 
+            width: 100%; height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; box-sizing: border-box; outline: none; transition: 0.2s; 
+        }
+        input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; outline: none; margin: 10px 0; cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 18px; height: 18px; background: #fff; border: 2px solid var(--primary); border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.1); }
+        
+        .color-wrapper { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 42px; width: 100%; background: #fff; box-sizing: border-box; }
+        input[type="color"] { -webkit-appearance: none; border: none; width: 44px; height: 100%; padding: 0; cursor: pointer; background: none; flex-shrink: 0; }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-right: 1px solid #e2e8f0; }
+        input.color-hex-input { border: none; flex: 1; width: 100%; min-width: 0; padding: 0 10px; font-family: monospace; font-size: 14px; text-transform: uppercase; color: #475569; height: 100%; outline: none; }
+
+        .bg-panel { background: #f1f5f9; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
+        .bg-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+        .bg-header span { font-size: 14px; font-weight: 500; color: #334155; }
+        
+        .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider:before { transform: translateX(18px); }
+
+        .bg-controls { margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; display: block; opacity: 1; transition: 0.3s; }
+        .bg-controls.hidden { display: none; opacity: 0; }
+        
+        .opacity-label { display: flex; justify-content: space-between; font-size: 12px; color: #64748b; margin-top: 10px; margin-bottom: 5px; }
+
+        .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: auto; }
+        .btn:hover { background: #2563eb; }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        
+        .tips { font-size: 12px; color: #b45309; background: #fffbeb; padding: 10px; border-radius: 6px; margin-top: 15px; display: none; border: 1px solid #fcd34d; line-height: 1.4; }
+
+        .preview-area { justify-content: center; align-items: center; background-color: #f8fafc; background-image: linear-gradient(45deg, #e2e8f0 25%, transparent 25%), linear-gradient(-45deg, #e2e8f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e2e8f0 75%), linear-gradient(-45deg, transparent 75%, #e2e8f0 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px; position: relative; min-height: 400px; }
+        .preview-content { text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+        .preview-content img { max-width: 90%; max-height: 320px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); border-radius: 4px; }
+        .stats { font-size: 13px; color: #64748b; background: white; padding: 8px 16px; border-radius: 20px; border: 1px solid #e2e8f0; display: inline-block; }
+        
+        /* 底部署名样式 */
+        .footer { margin-top: 40px; margin-bottom: 20px; color: #94a3b8; font-size: 13px; text-align: center; font-weight: 500; letter-spacing: 0.5px; }
+
+        @media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+<h1>L0ADING动画生成器</h1>
+
+<div class="container">
+    <div class="card">
+        <div class="form-group">
+            <label>动画模版</label>
+            <select id="styleType">
+                <option value="ios">iOS 菊花 (Classic Spinner)</option>
+                <option value="spinner">平滑圆环 (Smooth Ring)</option>
+                <option value="chase">追逐圆点 (Chasing Dots)</option>
+                <option value="bars">音律跳动 (Equalizer)</option>
+                <option value="pulse">脉冲扩散 (Pulse)</option>
+                <option value="fading-circle">淡入圆圈 (Fading Circle)</option>
+                <option value="dots">三点跳动 (Bouncing Dots)</option>
+            </select>
+        </div>
+
+        <div class="row">
+            <div class="col form-group">
+                <label>尺寸 (px)</label>
+                <input type="number" id="size" value="64" min="16" max="512">
+            </div>
+            <!-- 主题色 -->
+            <div class="col form-group">
+                <label>Loading 颜色</label>
+                <div class="color-wrapper">
+                    <input type="color" id="colorPicker" value="#3b82f6">
+                    <input type="text" id="colorText" class="color-hex-input" value="#3B82F6">
+                </div>
+            </div>
+        </div>
+
+        <!-- 背景设置 -->
+        <div class="form-group">
+            <label>背景设置</label>
+            <div class="bg-panel">
+                <div class="bg-header">
+                    <span>背景透明 (Transparent)</span>
+                    <label class="switch">
+                        <input type="checkbox" id="isBgTransparent" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="bg-controls hidden" id="bgControlArea">
+                    <label style="font-size:12px; margin-bottom:6px; color:#64748b;">背景颜色 (Hex)</label>
+                    <div class="color-wrapper">
+                        <input type="color" id="bgColorPicker" value="#ffffff">
+                        <input type="text" id="bgColorText" class="color-hex-input" value="#FFFFFF">
+                    </div>
+                    <div class="opacity-label">
+                        <span>背景透明度 (Alpha)</span>
+                        <span id="bgOpacityVal">100%</span>
+                    </div>
+                    <input type="range" id="bgOpacity" min="0" max="100" value="100">
+                </div>
+            </div>
+        </div>
+
+        <!-- 输出格式 -->
+        <div class="form-group">
+            <label>输出格式</label>
+            <select id="format">
+                <option value="apng">APNG (完美支持半透明)</option>
+                <option value="gif">GIF</option>
+            </select>
+        </div>
+
+        <!-- 压缩等级 -->
+        <div class="form-group">
+            <label>压缩等级 / 画质 <span id="qualityVal">80%</span></label>
+            <input type="range" id="quality" min="10" max="100" value="80" step="10">
+        </div>
+
+        <div class="form-group">
+            <label>帧率 (FPS): <span id="fpsVal">24</span></label>
+            <input type="range" id="fps" min="10" max="60" value="24" step="1">
+        </div>
+
+        <div class="tips" id="gifTip">⚠️ GIF 格式不支持半透明背景。若背景含透明度，建议使用 APNG。</div>
+
+        <button class="btn" id="generateBtn">生成动画</button>
+    </div>
+
+    <div class="card preview-area">
+        <div class="preview-content" id="previewContent">
+            <div style="color:#94a3b8; display:flex; flex-direction:column; align-items:center;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                <span style="margin-top:10px">点击左侧生成预览</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 底部署名 -->
+<div class="footer">Designed by NevenHaha</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const previewContent = document.getElementById('previewContent');
+    
+    // UI Elements
+    const colorPicker = document.getElementById('colorPicker');
+    const colorText = document.getElementById('colorText');
+    const bgColorPicker = document.getElementById('bgColorPicker');
+    const bgColorText = document.getElementById('bgColorText');
+    const isBgTransparent = document.getElementById('isBgTransparent');
+    const bgControlArea = document.getElementById('bgControlArea');
+    const bgOpacity = document.getElementById('bgOpacity');
+    const bgOpacityVal = document.getElementById('bgOpacityVal');
+    const gifTip = document.getElementById('gifTip');
+    const qualityInput = document.getElementById('quality');
+    const qualityVal = document.getElementById('qualityVal');
+    const fpsInput = document.getElementById('fps');
+    const fpsVal = document.getElementById('fpsVal');
+
+    // 颜色同步逻辑
+    function bindColorSync(picker, text) {
+        picker.addEventListener('input', (e) => text.value = e.target.value.toUpperCase());
+        text.addEventListener('input', (e) => {
+            let val = e.target.value.trim();
+            if (!val.startsWith('#') && /^[0-9A-Fa-f]{3,6}$/.test(val)) val = '#' + val;
+            if (/^#([0-9A-F]{3}){1,2}$/i.test(val)) {
+                if (val.length === 4) val = '#' + val[1]+val[1]+val[2]+val[2]+val[3]+val[3];
+                picker.value = val;
+            }
+        });
+        text.addEventListener('blur', () => text.value = picker.value.toUpperCase());
+    }
+    bindColorSync(colorPicker, colorText);
+    bindColorSync(bgColorPicker, bgColorText);
+
+    // 滑块数值外显绑定
+    fpsInput.addEventListener('input', function() { fpsVal.innerText = this.value; });
+    qualityInput.addEventListener('input', function() { qualityVal.innerText = this.value + '%'; });
+    bgOpacity.addEventListener('input', function() { 
+        bgOpacityVal.innerText = this.value + '%'; 
+        checkTips();
+    });
+
+    // 背景UI逻辑
+    isBgTransparent.addEventListener('change', function() {
+        if(this.checked) {
+            bgControlArea.classList.add('hidden');
+        } else {
+            bgControlArea.classList.remove('hidden');
+        }
+        checkTips();
+    });
+    
+    document.getElementById('format').addEventListener('change', checkTips);
+
+    function checkTips() {
+        const isGif = document.getElementById('format').value === 'gif';
+        const transparent = isBgTransparent.checked;
+        const opacity = parseInt(bgOpacity.value);
+        if (isGif && (transparent || (!transparent && opacity < 100))) {
+            gifTip.style.display = 'block';
+        } else {
+            gifTip.style.display = 'none';
+        }
+    }
+
+    function getRgbaColor(hex, alphaPercent) {
+        if(!hex.startsWith('#')) hex = '#' + hex;
+        if(hex.length === 4) hex = '#' + hex[1]+hex[1] + hex[2]+hex[2] + hex[3]+hex[3];
+        let c = hex.substring(1);
+        let num = parseInt(c, 16);
+        let r = (num >> 16) & 255;
+        let g = (num >> 8) & 255;
+        let b = num & 255;
+        let a = alphaPercent / 100;
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+
+    // 绘图引擎
+    const drawers = {
+        ios: (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2, lines = 12; ctx.translate(cx, cy);
+            for(let i=0; i<lines; i++) {
+                ctx.rotate(Math.PI * 2 / lines); ctx.beginPath(); ctx.moveTo(0, s*0.25); ctx.lineTo(0, s*0.45);
+                ctx.lineWidth = s * 0.08; ctx.lineCap = 'round';
+                let opacity = (1 - ((i/lines - p + 1) % 1));
+                ctx.strokeStyle = getRgbaColor(c, Math.max(10, opacity*100));
+                ctx.stroke();
+            }
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
+        spinner: (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2, r = s*0.4, lw = s*0.1;
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.strokeStyle = getRgbaColor(c, 15); ctx.lineWidth = lw; ctx.stroke();
+            ctx.beginPath(); const start = -Math.PI/2 + p * Math.PI*2;
+            ctx.arc(cx, cy, r, start, start + Math.PI*1.5); ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.stroke();
+        },
+        chase: (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2; ctx.translate(cx, cy); const dotR = s * 0.06;
+            ctx.rotate(p * Math.PI * 2); ctx.beginPath(); ctx.arc(0, -s*0.35, dotR * 1.5, 0, Math.PI*2); ctx.fillStyle = c; ctx.fill();
+            ctx.rotate(-p * Math.PI * 0.2 + 1); ctx.beginPath(); ctx.arc(0, -s*0.35, dotR, 0, Math.PI*2); ctx.fillStyle = getRgbaColor(c, 60); ctx.fill();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
+        bars: (ctx, s, p, c) => {
+            const barCount = 4, barW = s * 0.15, gap = s * 0.05, startX = (s - (4 * barW + 3*gap)) / 2;
+            for(let i=0; i<4; i++) {
+                let h = s * 0.3 + Math.sin((p + i*0.2) * Math.PI * 2) * (s*0.2);
+                ctx.fillStyle = c; ctx.fillRect(startX + i * (barW + gap), (s - h) / 2, barW, h);
+            }
+        },
+        pulse: (ctx, s, p, c) => {
+            [0, 0.6].forEach(offset => {
+                let localP = (p + offset) % 1;
+                ctx.beginPath(); ctx.arc(s/2, s/2, localP * (s/2), 0, Math.PI*2);
+                ctx.fillStyle = getRgbaColor(c, (1-localP)*100); ctx.fill();
+            });
+        },
+        "fading-circle": (ctx, s, p, c) => {
+            const cx = s/2, cy = s/2, count = 12, dotR = s * 0.07, radius = s * 0.4;
+            ctx.translate(cx, cy);
+            for (let i = 0; i < count; i++) {
+                ctx.save(); ctx.rotate((i / count) * Math.PI * 2); ctx.translate(radius, 0);
+                let idx = (Math.floor(p * count) + i) % count;
+                ctx.beginPath(); ctx.arc(0, 0, dotR, 0, Math.PI*2);
+                ctx.fillStyle = getRgbaColor(c, ((idx+1)/count)*100); ctx.fill();
+                ctx.restore();
+            }
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        },
+        dots: (ctx, s, p, c) => {
+            const r = s * 0.12, gap = r * 0.8, startX = (s - (3*r*2 + 2*gap))/2 + r;
+            for(let i=0; i<3; i++) {
+                let localP = (p * 2 - i * 0.3);
+                let dy = (localP > 0 && localP < 1) ? -Math.sin(localP * Math.PI) * (s*0.25) : 0;
+                ctx.beginPath(); ctx.arc(startX + i*(r*2+gap), s/2 + dy, r, 0, Math.PI*2); ctx.fillStyle = c; ctx.fill();
+            }
+        }
+    };
+
+    // 生成逻辑
+    document.getElementById('generateBtn').addEventListener('click', async function() {
+        const btn = this; btn.disabled = true; btn.innerText = "生成中...";
+        previewContent.innerHTML = '<div style="color:#64748b">渲染中...</div>';
+
+        const style = document.getElementById('styleType').value;
+        const size = parseInt(document.getElementById('size').value);
+        const format = document.getElementById('format').value;
+        const fps = parseInt(document.getElementById('fps').value);
+        const quality = parseInt(document.getElementById('quality').value);
+        const color = document.getElementById('colorPicker').value;
+
+        const transparent = isBgTransparent.checked;
+        const bgHex = document.getElementById('bgColorPicker').value;
+        const bgAlpha = parseInt(document.getElementById('bgOpacity').value);
+
+        canvas.width = size; canvas.height = size;
+        const duration = 1000;
+        const totalFrames = Math.floor((duration / 1000) * fps);
+
+        try {
+            const fillCanvasBg = (ctx) => {
+                ctx.clearRect(0, 0, size, size);
+                if (!transparent) {
+                    ctx.fillStyle = getRgbaColor(bgHex, bgAlpha);
+                    ctx.fillRect(0, 0, size, size);
+                }
+            };
+
+            let blob;
+            if (format === 'gif') {
+                const workerBlob = new Blob([`importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');`], {type:'text/javascript'});
+                const workerUrl = URL.createObjectURL(workerBlob);
+                let gifQ = Math.max(1, Math.floor(30 - (quality / 100 * 29)));
+                const gif = new GIF({
+                    workers: 2, quality: gifQ, width: size, height: size, workerScript: workerUrl,
+                    transparent: transparent ? 0x00000000 : null
+                });
+                for (let i = 0; i < totalFrames; i++) {
+                    fillCanvasBg(ctx);
+                    drawers[style](ctx, size, i / totalFrames, color);
+                    gif.addFrame(ctx, {copy: true, delay: duration / totalFrames});
+                }
+                blob = await new Promise(resolve => { gif.on('finished', b => { URL.revokeObjectURL(workerUrl); resolve(b); }); gif.render(); });
+            } else {
+                const frames = [], delays = [];
+                let cnum = (quality < 100) ? Math.floor(16 + (quality/100 * 240)) : 0;
+                for (let i = 0; i < totalFrames; i++) {
+                    fillCanvasBg(ctx);
+                    drawers[style](ctx, size, i / totalFrames, color);
+                    frames.push(ctx.getImageData(0, 0, size, size).data.buffer);
+                    delays.push(duration / totalFrames);
+                }
+                const buf = UPNG.encode(frames, size, size, cnum, delays);
+                blob = new Blob([buf], {type: 'image/png'});
+            }
+
+            const url = URL.createObjectURL(blob);
+            const sizeKB = (blob.size / 1024).toFixed(1);
+            const ext = format === 'apng' ? 'png' : 'gif';
+            
+            const imgStyle = (transparent || (bgHex.toUpperCase() === '#FFFFFF' && bgAlpha > 0)) ? 
+                'background-image: linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%); background-size:10px 10px;' : '';
+
+            previewContent.innerHTML = `
+                <img src="${url}" style="${imgStyle}">
+                <div class="stats">${format.toUpperCase()} | ${size}px | ${sizeKB} KB</div>
+                <a href="${url}" download="loading_${style}.${ext}" class="btn" style="width:auto; padding:10px 40px; margin-top:10px; background:#10b981;">下载文件</a>
+            `;
+        } catch (e) {
+            console.error(e);
+            previewContent.innerHTML = `<div style="color:red">生成失败</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "生成动画";
+        }
+    });
+</script>
+</body>
+</html>

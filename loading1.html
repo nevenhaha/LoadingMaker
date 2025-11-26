@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Loading 动画生成器</title>
+    <!-- 引入核心库 (无需下载，直接使用 CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.min.js"></script>
+
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 20px; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        
+        .main-container { display: flex; flex-wrap: wrap; gap: 20px; max-width: 900px; width: 100%; justify-content: center; }
+        
+        /* 配置面板 */
+        .config-panel { flex: 1; min-width: 300px; background: var(--card); padding: 25px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: block; font-size: 0.9em; font-weight: 600; margin-bottom: 6px; color: #64748b; }
+        .row { display: flex; gap: 10px; }
+        .col { flex: 1; }
+        
+        input, select { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; font-size: 14px; outline: none; transition: border 0.2s; }
+        input:focus, select:focus { border-color: var(--primary); }
+        input[type="range"] { padding: 0; height: 6px; background: #e2e8f0; border-radius: 3px; -webkit-appearance: none; margin-top: 10px;}
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: var(--primary); border-radius: 50%; cursor: pointer; }
+        input[type="color"] { height: 40px; padding: 2px; cursor: pointer; }
+
+        /* 预览面板 */
+        .preview-panel { flex: 1; min-width: 300px; background: var(--card); padding: 25px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .preview-box { width: 100%; height: 250px; background-image: linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px; border: 2px dashed #cbd5e1; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; overflow: hidden; }
+        .preview-box img { max-width: 80%; max-height: 80%; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+        .btn:hover { opacity: 0.9; }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        
+        .file-info { margin-top: 15px; text-align: center; font-size: 0.9em; color: #64748b; background: #f1f5f9; padding: 10px; border-radius: 6px; width: 100%; box-sizing: border-box;}
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <h1 style="margin-bottom: 30px;">Loading 动画生成器</h1>
+
+    <div class="main-container">
+        <!-- 左侧：配置 -->
+        <div class="config-panel">
+            <div class="control-group">
+                <label>动画样式</label>
+                <select id="styleType">
+                    <option value="spinner">经典旋转 (Spinner)</option>
+                    <option value="dots">三点跳动 (Bouncing Dots)</option>
+                    <option value="pulse">同心圆扩散 (Pulse)</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <div class="col control-group">
+                    <label>宽度 (px)</label>
+                    <input type="number" id="width" value="64" min="16" max="256">
+                </div>
+                <div class="col control-group">
+                    <label>高度 (px)</label>
+                    <input type="number" id="height" value="64" min="16" max="256">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col control-group">
+                    <label>颜色</label>
+                    <input type="color" id="color" value="#2563eb">
+                </div>
+                <div class="col control-group">
+                    <label>背景</label>
+                    <select id="bgOption">
+                        <option value="transparent">透明</option>
+                        <option value="white">白色</option>
+                        <option value="black">黑色</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>输出格式</label>
+                <select id="format">
+                    <option value="apng">APNG (推荐, 高画质, 支持半透明)</option>
+                    <option value="gif">GIF (兼容性好, 仅支持全透)</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>体积压缩 / 画质 (拖动滑块)</label>
+                <input type="range" id="quality" min="0" max="100" value="80">
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:#999; margin-top:5px;">
+                    <span>极致压缩 (文件小)</span>
+                    <span>无损画质 (文件大)</span>
+                </div>
+            </div>
+
+            <button class="btn" id="generateBtn">生成动画</button>
+        </div>
+
+        <!-- 右侧：预览 -->
+        <div class="preview-panel">
+            <div class="preview-box" id="previewContainer">
+                <span style="color:#94a3b8">预览区域</span>
+            </div>
+            <div class="file-info" id="fileInfo">等待生成...</div>
+            <a id="downloadLink" style="display:none; color: var(--primary); margin-top: 10px; text-decoration: none; font-weight: 600;" href="#">下载文件</a>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+<script>
+    // --- 配置与全局变量 ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const previewEl = document.getElementById('previewContainer');
+    const btn = document.getElementById('generateBtn');
+    const infoEl = document.getElementById('fileInfo');
+    const downloadLink = document.getElementById('downloadLink');
+
+    const TOTAL_FRAMES = 30; // 默认帧数
+    const DURATION = 1000;   // 动画周期 1秒
+
+    // --- 动画绘制逻辑 (策略模式) ---
+    const drawers = {
+        // 1. 旋转圆环
+        spinner: (ctx, w, h, progress, color) => {
+            const cx = w / 2, cy = h / 2;
+            const r = Math.min(w, h) / 2 - (Math.min(w,h)*0.1);
+            const lw = Math.max(2, Math.min(w, h) * 0.1);
+            
+            // 底色
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.strokeStyle = adjustOpacity(color, 0.2);
+            ctx.lineWidth = lw;
+            ctx.stroke();
+
+            // 旋转色
+            const start = -Math.PI / 2 + (progress * Math.PI * 2);
+            const length = Math.PI * 1.5;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, start, start + length);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        },
+        // 2. 三个跳动点
+        dots: (ctx, w, h, progress, color) => {
+            const radius = Math.min(w, h) * 0.15;
+            const gap = radius * 0.5;
+            const totalW = (radius * 2 * 3) + (gap * 2);
+            let startX = (w - totalW) / 2 + radius;
+            const cy = h / 2;
+
+            for (let i = 0; i < 3; i++) {
+                // 每个点相位错开
+                let p = (progress + i * 0.15) % 1;
+                // 简单的正弦波跳动
+                let yOffset = -Math.sin(p * Math.PI * 2) * (h * 0.2);
+                // 只取上半波
+                if (p > 0.5) yOffset = 0;
+
+                ctx.beginPath();
+                ctx.arc(startX + i * (radius * 2 + gap), cy + yOffset, radius, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+            }
+        },
+        // 3. 脉冲扩散
+        pulse: (ctx, w, h, progress, color) => {
+            const cx = w / 2, cy = h / 2;
+            const maxR = Math.min(w, h) / 2;
+            
+            // 画两个波纹，相位错开
+            [0, 0.5].forEach(offset => {
+                let p = (progress + offset) % 1;
+                let r = p * maxR;
+                let opacity = 1 - p; // 越扩散越透明
+
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fillStyle = adjustOpacity(color, opacity);
+                ctx.fill();
+            });
+        }
+    };
+
+    // --- 辅助函数 ---
+    // 十六进制颜色转rgba字符串用于调整透明度
+    function adjustOpacity(hex, alpha) {
+        let c = hex.substring(1).split('');
+        if(c.length===3) c = [c[0], c[0], c[1], c[1], c[2], c[2]];
+        c = '0x'+c.join('');
+        return 'rgba('+[(c>>16)&255, (c>>8)&255, c&255].join(',')+','+alpha+')';
+    }
+
+    function fillBackground(ctx, w, h, type) {
+        ctx.clearRect(0, 0, w, h);
+        if (type === 'white') {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+        } else if (type === 'black') {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, w, h);
+        }
+        // transparent 不做处理
+    }
+
+    // --- 生成 GIF ---
+    async function createGIF(opts) {
+        // 动态加载 Worker
+        const workerBlob = new Blob([`importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');`], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+
+        // GIF 质量参数：1 是最好，但慢；20 是一般。这里简单的映射一下
+        // 用户滑块 0-100 (100最好) -> gifQ 30 - 1
+        const gifQ = Math.max(1, Math.floor(30 - (opts.quality * 0.29))); 
+        
+        const gif = new GIF({
+            workers: 2,
+            quality: gifQ,
+            width: opts.width,
+            height: opts.height,
+            workerScript: workerUrl,
+            transparent: opts.bg === 'transparent' ? 0x00000000 : null,
+            background: opts.bg === 'white' ? '#ffffff' : (opts.bg === 'black' ? '#000000' : null)
+        });
+
+        for (let i = 0; i < TOTAL_FRAMES; i++) {
+            fillBackground(ctx, opts.width, opts.height, opts.bg);
+            drawers[opts.style](ctx, opts.width, opts.height, i / TOTAL_FRAMES, opts.color);
+            gif.addFrame(ctx, {delay: DURATION / TOTAL_FRAMES, copy: true});
+        }
+
+        return new Promise(resolve => {
+            gif.on('finished', blob => {
+                URL.revokeObjectURL(workerUrl);
+                resolve(blob);
+            });
+            gif.render();
+        });
+    }
+
+    // --- 生成 APNG ---
+    async function createAPNG(opts) {
+        const frames = [];
+        const delays = [];
+        
+        // 计算色彩深度 (cnum)
+        // 0 = 无损
+        // 256 = 8bit 
+        // 压缩逻辑：如果滑块是100(无损)，cnum=0。
+        // 如果滑块<100，映射到 16-256 颜色。
+        let cnum = 0;
+        if (opts.quality < 100) {
+            // 映射：0 -> 16色, 99 -> 256色
+            cnum = Math.floor(16 + (opts.quality / 100) * 240);
+        }
+
+        for (let i = 0; i < TOTAL_FRAMES; i++) {
+            fillBackground(ctx, opts.width, opts.height, opts.bg);
+            drawers[opts.style](ctx, opts.width, opts.height, i / TOTAL_FRAMES, opts.color);
+            
+            const imgData = ctx.getImageData(0, 0, opts.width, opts.height);
+            frames.push(imgData.data.buffer);
+            delays.push(DURATION / TOTAL_FRAMES);
+        }
+
+        const buf = UPNG.encode(frames, opts.width, opts.height, cnum, delays);
+        return new Blob([buf], {type: 'image/png'});
+    }
+
+    // --- 主事件 ---
+    btn.addEventListener('click', async () => {
+        const w = parseInt(document.getElementById('width').value);
+        const h = parseInt(document.getElementById('height').value);
+        const style = document.getElementById('styleType').value;
+        const color = document.getElementById('color').value;
+        const bg = document.getElementById('bgOption').value;
+        const fmt = document.getElementById('format').value;
+        const qual = parseInt(document.getElementById('quality').value);
+
+        canvas.width = w;
+        canvas.height = h;
+
+        btn.disabled = true;
+        btn.textContent = "生成中...";
+        infoEl.textContent = "正在进行画面渲染和压缩计算...";
+        
+        // 给 UI 一个重绘的时间
+        await new Promise(r => setTimeout(r, 50));
+
+        try {
+            let blob;
+            const opts = { width: w, height: h, style, color, bg, quality: qual };
+            
+            if (fmt === 'gif') {
+                blob = await createGIF(opts);
+            } else {
+                blob = await createAPNG(opts);
+            }
+
+            const url = URL.createObjectURL(blob);
+            previewEl.innerHTML = `<img src="${url}" />`;
+            
+            const sizeKB = (blob.size / 1024).toFixed(2);
+            infoEl.innerHTML = `格式: <b>${fmt.toUpperCase()}</b> | 尺寸: ${w}x${h} | 大小: <b style="color:#e11d48">${sizeKB} KB</b>`;
+            
+            downloadLink.href = url;
+            downloadLink.download = `loading_${Date.now()}.${fmt === 'apng' ? 'png' : 'gif'}`;
+            downloadLink.style.display = 'inline-block';
+
+        } catch (err) {
+            console.error(err);
+            infoEl.textContent = "生成出错，请检查控制台 (可能是浏览器兼容性问题)";
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "生成动画";
+        }
+    });
+</script>
+</body>
+</html>
